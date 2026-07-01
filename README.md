@@ -1,49 +1,191 @@
 # GitHub Notification Auto Done
 
-Auto-archive dependabot Pull Request notifications on GitHub when they are merged or closed.
+[![CI](https://github.com/xenoamess/github-notification-auto-done-skill/actions/workflows/ci.yml/badge.svg)](https://github.com/xenoamess/github-notification-auto-done-skill/actions/workflows/ci.yml)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
+A small Python tool that automatically archives GitHub notifications for **merged or closed dependabot Pull Requests**, so your inbox stays clean without manual clicks.
+
+---
 
 ## What it does
 
-Scans your GitHub notifications hourly, identifies dependabot PRs that are already merged or closed, and archives them from your inbox using the GitHub REST API (`DELETE /notifications/threads/{id}`).
+If you maintain projects that receive a lot of dependabot PRs, your GitHub notification inbox probably looks like this:
 
-## Prerequisites
+- hundreds of "Bump xxx from A to B" notifications
+- many of them are already merged or closed
+- you still have to open/archiving them one by one
 
-- Python 3.8+
-- A GitHub Personal Access Token with `notifications` and `repo` permissions
+This tool connects to the GitHub REST API, finds those stale dependabot PR notifications, and marks them as **Done** (the same as clicking the archive/done button on [github.com/notifications](https://github.com/notifications)).
 
-## Setup
+```text
+2024-07-01 09:00:00 INFO Starting GitHub notification cleanup
+2024-07-01 09:00:01 INFO Fetched 42 notification(s)
+2024-07-01 09:00:02 INFO Archived [merged]: Bump requests from 2.30.0 to 2.31.0
+2024-07-01 09:00:02 INFO Done. archived=38 skipped=4 errors=0 total=42
+```
 
-1. Copy `.env.example` to `.env` and fill in your token:
-   ```bash
-   cp .env.example .env
-   # edit .env
-   ```
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Run manually:
-   ```bash
-   python scripts/github_notification_auto_done.py
-   ```
-
-4. Or add to cron (hourly):
-   ```cron
-   0 * * * * /usr/bin/python3 /path/to/scripts/github_notification_auto_done.py >> /tmp/github_cleanup.log 2>&1
-   ```
+---
 
 ## How it works
 
-1. Fetches all notifications from `GET /notifications`
-2. Filters for PullRequest type notifications
-3. For each PR, checks if the author is `dependabot[bot]`
-4. Checks PR status via the PR API (`merged` or `closed`)
-5. Archives qualifying notifications with `DELETE /notifications/threads/{id}`
+```mermaid
+flowchart TD
+    A[Start] --> B{Load settings<br/>.env / CLI / env vars}
+    B -->|Missing GITHUB_TOKEN| C[Exit with error]
+    B --> D[Create GitHubClient]
+    D --> E[GET /notifications<br/>paginated]
+    E --> F{Type == PullRequest?}
+    F -->|No| G[Skip: not_pull_request]
+    F -->|Yes| H{In exclude list?}
+    H -->|Yes| I[Skip: excluded_repo]
+    H -->|No| J{Looks like dependabot?<br/>title / comment URL}
+    J -->|No| K[GET /repos/.../pulls/{n}<br/>verify author]
+    J -->|Yes| L[GET /repos/.../pulls/{n}<br/>check state]
+    K -->|Not dependabot| G
+    L --> M{merged or closed?}
+    M -->|No| N[Skip: skip_open / skip_closed]
+    M -->|Yes| O{--dry-run?}
+    O -->|Yes| P[Preview only]
+    O -->|No| Q[DELETE /notifications/threads/{id}<br/>Mark as Done]
+    P --> R[Summarize results]
+    Q --> R
+    N --> R
+    G --> R
+    I --> R
+    R --> S[Exit]
+```
 
-## Notes
+The archive step uses the **official** GitHub REST API endpoint:
 
-- Open PRs are skipped (not archived)
-- Uses concurrent requests (2 workers) with retry logic to handle rate limits
-- Logs are written to stdout; redirect to file for cron jobs
+```http
+DELETE /notifications/threads/{thread_id}
+```
+
+This endpoint is documented as **"Mark a thread as done"** and is exactly what GitHub's own web UI does when you archive a notification.
+
+---
+
+## Installation
+
+Requires **Python 3.8+**.
+
+```bash
+# Clone the repository
+git clone https://github.com/xenoamess/github-notification-auto-done-skill.git
+cd github-notification-auto-done-skill
+
+# Create and activate a virtual environment (recommended)
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install the package
+pip install -e .
+```
+
+For development (linting, type checking, tests):
+
+```bash
+pip install -e ".[dev]"
+```
+
+---
+
+## Configuration
+
+Create a `.env` file from the example and add your token:
+
+```bash
+cp .env.example .env
+# edit .env
+```
+
+`.env`:
+
+```bash
+GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+```
+
+### Token permissions
+
+- **Classic PAT**: needs the `notifications` and `repo` scopes.
+- **Fine-grained PAT**: needs read access to notifications and repository contents/pull requests.
+
+> Keep your token secret. Never commit `.env`.
+
+---
+
+## Usage
+
+### Dry run (recommended first time)
+
+```bash
+python -m github_notification_auto_done --dry-run
+```
+
+This prints what would be archived without making any changes.
+
+### Run for real
+
+```bash
+python -m github_notification_auto_done
+```
+
+### Run via the legacy script path
+
+```bash
+python scripts/github_notification_auto_done.py
+```
+
+### Cron (hourly)
+
+```cron
+0 * * * * cd /path/to/repo && /path/to/repo/.venv/bin/python -m github_notification_auto_done >> /var/log/github_cleanup.log 2>&1
+```
+
+---
+
+## CLI options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--dry-run` | `false` | Preview mode, no archive requests |
+| `--since` | 24 hours ago | Only process notifications updated after this ISO 8601 timestamp |
+| `--max-workers` | `4` | Concurrent API workers |
+| `--exclude-repo` | none | Comma-separated list of `owner/repo` to ignore |
+| `--log-file` | none | Also write logs to this file |
+| `--json-logs` | `false` | Emit logs as newline-delimited JSON |
+| `-v`, `--verbose` | `false` | Enable DEBUG logging |
+| `--config` | none | Load defaults from a JSON or TOML file |
+
+Environment variables with the same names (e.g. `MAX_WORKERS`, `EXCLUDE_REPOS`) are also supported. CLI flags take precedence over environment variables, which take precedence over config files.
+
+---
+
+## Why not the old `/notifications/beta/archive` endpoint?
+
+That URL is an internal beta endpoint used by GitHub's web frontend. It requires session-style authentication and is not officially supported for scripts or PATs. We use the documented `DELETE /notifications/threads/{thread_id}` endpoint instead, which is stable and officially supported.
+
+---
+
+## Development
+
+```bash
+# Lint
+ruff check src tests scripts
+
+# Format
+black src tests scripts
+
+# Type check
+mypy src
+
+# Run tests with coverage
+pytest
+```
+
+---
+
+## License
+
+MIT

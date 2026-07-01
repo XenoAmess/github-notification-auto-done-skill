@@ -1,0 +1,104 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "github-notification-auto-done"
+version = "0.2.0"
+description = "Auto-archive dependabot Pull Request notifications on GitHub when they are merged or closed."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+authors = [
+    { name = "XenoAmess" },
+]
+keywords = ["github", "notifications", "dependabot", "automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black>=24.0",
+    "ruff>=0.3.0",
+    "mypy>=1.8.0",
+    "pytest>=7.0",
+    "pytest-cov>=4.1",
+    "responses>=0.24",
+]
+
+[project.urls]
+Homepage = "https://github.com/xenoamess/github-notification-auto-done-skill"
+Issues = "https://github.com/xenoamess/github-notification-auto-done-skill/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/github_notification_auto_done"]
+
+[tool.black]
+line-length = 88
+target-version = ["py38"]
+include = '\.pyi?$'
+
+[tool.ruff]
+target-version = "py38"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "W",
+    "I",
+    "N",
+    "B",
+    "C4",
+    "SIM",
+]
+ignore = [
+    "UP006",
+    "UP037",
+    "UP045",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--cov=github_notification_auto_done --cov-report=term-missing --cov-fail-under=80"
+
+[tool.coverage.run]
+source = ["src/github_notification_auto_done"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
