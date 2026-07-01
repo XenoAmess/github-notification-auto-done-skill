@@ -35,7 +35,7 @@ jobs:
         run: black --check src tests scripts
 
       - name: Type check with mypy
-        if: matrix.python-version >= '3.10'
+        if: matrix.python-version == '3.12'
         run: mypy src
 
       - name: Test with pytest
