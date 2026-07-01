@@ -31,30 +31,31 @@ This tool connects to the GitHub REST API, finds those stale dependabot PR notif
 
 ```mermaid
 flowchart TD
-    A[Start] --> B{Load settings<br/>.env / CLI / env vars}
-    B -->|Missing GITHUB_TOKEN| C[Exit with error]
-    B --> D[Create GitHubClient]
-    D --> E[GET /notifications<br/>paginated]
-    E --> F{Type == PullRequest?}
-    F -->|No| G1[Skip non-PR notification]
-    F -->|Yes| H{In exclude list?}
-    H -->|Yes| I[Skip excluded repository]
-    H -->|No| J{Dependabot PR?}
-    J -->|No| G2[Skip non-dependabot PR]
-    J -->|Yes| K[GET /repos/.../pulls/N<br/>fetch PR state]
-    K -->|Fetch failed| L[Log error]
-    K -->|open or closed-not-merged| M[Skip unfinished PR]
-    K -->|merged or closed| N{--dry-run?}
-    N -->|Yes| O[Preview only]
-    N -->|No| P[DELETE /notifications/threads/ID<br/>Mark as Done]
-    G1 --> R[Summarize results]
-    G2 --> R
-    I --> R
-    L --> R
-    M --> R
-    O --> R
-    P --> R
-    R --> S[Exit]
+    A[Start] --> B[Load settings from env and CLI]
+    B --> C{GITHUB_TOKEN set?}
+    C -->|No| D[Exit with error]
+    C -->|Yes| E[Create GitHubClient]
+    E --> F[Fetch notifications page by page]
+    F --> G{Is PullRequest?}
+    G -->|No| H[Skip non-PR notification]
+    G -->|Yes| I{Is excluded repository?}
+    I -->|Yes| J[Skip excluded repository]
+    I -->|No| K{Is dependabot PR?}
+    K -->|No| L[Skip non-dependabot PR]
+    K -->|Yes| M[Fetch PR state]
+    M -->|Fetch failed| N[Log error]
+    M -->|Still open| O[Skip unfinished PR]
+    M -->|Merged or closed| P{Is dry-run?}
+    P -->|Yes| Q[Preview only]
+    P -->|No| R[Archive notification via official API]
+    H --> S[Summarize results]
+    J --> S
+    L --> S
+    N --> S
+    O --> S
+    Q --> S
+    R --> S
+    S --> T[Exit]
 ```
 
 The archive step uses the **official** GitHub REST API endpoint:
