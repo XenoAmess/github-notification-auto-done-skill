@@ -46,7 +46,7 @@ flowchart TD
     K -->|open or closed-not-merged| M[Skip unfinished PR]
     K -->|merged or closed| N{--dry-run?}
     N -->|Yes| O[Preview only]
-    N -->|No| P[DELETE /notifications/threads/{id}<br/>Mark as Done]
+    N -->|No| P[DELETE /notifications/threads/ID<br/>Mark as Done]
     G1 --> R[Summarize results]
     G2 --> R
     I --> R
