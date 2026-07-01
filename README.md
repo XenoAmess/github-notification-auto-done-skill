@@ -36,23 +36,24 @@ flowchart TD
     B --> D[Create GitHubClient]
     D --> E[GET /notifications<br/>paginated]
     E --> F{Type == PullRequest?}
-    F -->|No| G[Skip: not_pull_request]
+    F -->|No| G1[Skip non-PR notification]
     F -->|Yes| H{In exclude list?}
-    H -->|Yes| I[Skip: excluded_repo]
-    H -->|No| J{Looks like dependabot?<br/>title / comment URL}
-    J -->|No| K[GET /repos/.../pulls/{n}<br/>verify author]
-    J -->|Yes| L[GET /repos/.../pulls/{n}<br/>check state]
-    K -->|Not dependabot| G
-    L --> M{merged or closed?}
-    M -->|No| N[Skip: skip_open / skip_closed]
-    M -->|Yes| O{--dry-run?}
-    O -->|Yes| P[Preview only]
-    O -->|No| Q[DELETE /notifications/threads/{id}<br/>Mark as Done]
-    P --> R[Summarize results]
-    Q --> R
-    N --> R
-    G --> R
+    H -->|Yes| I[Skip excluded repository]
+    H -->|No| J{Dependabot PR?}
+    J -->|No| G2[Skip non-dependabot PR]
+    J -->|Yes| K[GET /repos/.../pulls/{n}<br/>fetch PR state]
+    K -->|Fetch failed| L[Log error]
+    K -->|open or closed-not-merged| M[Skip unfinished PR]
+    K -->|merged or closed| N{--dry-run?}
+    N -->|Yes| O[Preview only]
+    N -->|No| P[DELETE /notifications/threads/{id}<br/>Mark as Done]
+    G1 --> R[Summarize results]
+    G2 --> R
     I --> R
+    L --> R
+    M --> R
+    O --> R
+    P --> R
     R --> S[Exit]
 ```
 
