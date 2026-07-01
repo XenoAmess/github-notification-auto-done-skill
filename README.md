@@ -41,7 +41,7 @@ flowchart TD
     H -->|Yes| I[Skip excluded repository]
     H -->|No| J{Dependabot PR?}
     J -->|No| G2[Skip non-dependabot PR]
-    J -->|Yes| K[GET /repos/.../pulls/{n}<br/>fetch PR state]
+    J -->|Yes| K[GET /repos/.../pulls/N<br/>fetch PR state]
     K -->|Fetch failed| L[Log error]
     K -->|open or closed-not-merged| M[Skip unfinished PR]
     K -->|merged or closed| N{--dry-run?}
