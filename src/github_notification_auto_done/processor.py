@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, List, Optional, Sequence
 
 from .client import GitHubClient
@@ -15,6 +17,11 @@ from .models import Notification, PullRequest
 logger = logging.getLogger(__name__)
 
 DEPENDABOT_LOGIN = "dependabot[bot]"
+
+REBASE_COMMAND = "@dependabot rebase"
+REBASE_COMMENT_PATTERN = re.compile(r"@dependabot\s+rebase\b", re.IGNORECASE)
+PASSING_CHECK_CONCLUSIONS = frozenset({"success", "neutral", "skipped"})
+MERGEABLE_STATE_RETRY_DELAY = 3.0  # seconds
 
 
 @dataclass(frozen=True)
@@ -28,6 +35,7 @@ class ProcessResult:
     archived: bool = False
     skipped: bool = False
     error: bool = False
+    commented: bool = False
 
 
 def _is_pull_request(notification: Notification) -> bool:
@@ -90,6 +98,135 @@ def _fetch_pr_status(
     return PullRequest.from_api(pr_data)
 
 
+def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
+    """Parse an ISO 8601 timestamp into an aware UTC datetime."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _ensure_mergeable_state(
+    client: GitHubClient,
+    notification: Notification,
+    pr: PullRequest,
+) -> PullRequest:
+    """Re-fetch the PR once when GitHub has not computed mergeable_state yet."""
+    if pr.mergeable_state != "unknown":
+        return pr
+    logger.debug("mergeable_state is unknown; re-fetching PR: %s", notification.title)
+    time.sleep(MERGEABLE_STATE_RETRY_DELAY)
+    refreshed = _fetch_pr_status(client, notification)
+    return refreshed if refreshed is not None else pr
+
+
+def _all_checks_passed(client: GitHubClient, pr: PullRequest) -> bool:
+    """Return True if every check run and legacy status on the head succeeded."""
+    if not pr.repo_full_name or not pr.head_sha:
+        return False
+    for run in client.get_check_runs(pr.repo_full_name, pr.head_sha):
+        if run.get("status") != "completed":
+            return False
+        if run.get("conclusion") not in PASSING_CHECK_CONCLUSIONS:
+            return False
+    status = client.get_combined_status(pr.repo_full_name, pr.head_sha)
+    if status is None:
+        return False
+    total = int(status.get("total_count") or 0)
+    return total == 0 or status.get("state") == "success"
+
+
+def _latest_rebase_request(client: GitHubClient, pr: PullRequest) -> Optional[datetime]:
+    """Return the creation time of the newest '@dependabot rebase' comment."""
+    if not pr.comments_url:
+        return None
+    latest: Optional[datetime] = None
+    for comment in client.get_issue_comments(pr.comments_url):
+        if not REBASE_COMMENT_PATTERN.search(comment.get("body") or ""):
+            continue
+        created = _parse_timestamp(comment.get("created_at"))
+        if created is not None and (latest is None or created > latest):
+            latest = created
+    return latest
+
+
+def _result(notification: Notification, status: str, **flags: bool) -> ProcessResult:
+    """Build a ProcessResult for a notification with the given status."""
+    return ProcessResult(
+        thread_id=notification.thread_id,
+        title=notification.title,
+        repository=notification.repository_full_name,
+        status=status,
+        **flags,
+    )
+
+
+def _handle_open_pr(
+    client: GitHubClient,
+    notification: Notification,
+    pr: PullRequest,
+    settings: Settings,
+) -> ProcessResult:
+    """Handle an open dependabot PR, optionally requesting a dependabot rebase.
+
+    A rebase is requested only when all of the following hold:
+
+    - the branch is out-of-date with the base branch (mergeable_state behind)
+    - all checks on the head commit have passed
+    - no '@dependabot rebase' comment was posted within the cooldown window
+      (which means dependabot is not currently rebasing)
+    """
+    if not settings.auto_rebase:
+        logger.info("Skip unfinished PR [%s]: %s", pr.status, notification.title)
+        return _result(notification, f"skip_{pr.status}", skipped=True)
+
+    pr = _ensure_mergeable_state(client, notification, pr)
+    if not pr.is_behind_base:
+        logger.info(
+            "Skip open PR not behind base [%s]: %s",
+            pr.mergeable_state or "unknown",
+            notification.title,
+        )
+        return _result(notification, "skip_open_not_behind", skipped=True)
+
+    if not _all_checks_passed(client, pr):
+        logger.info("Skip open PR with pending/failing checks: %s", notification.title)
+        return _result(notification, "skip_open_checks_not_passed", skipped=True)
+
+    last_request = _latest_rebase_request(client, pr)
+    if last_request is not None:
+        age = datetime.now(timezone.utc) - last_request
+        if age < timedelta(minutes=settings.rebase_cooldown_minutes):
+            logger.info(
+                "Skip open PR; rebase already requested %.1f min ago: %s",
+                age.total_seconds() / 60,
+                notification.title,
+            )
+            return _result(notification, "skip_open_rebase_pending", skipped=True)
+
+    if settings.dry_run:
+        logger.info(
+            "[DRY-RUN] Would comment '%s': %s", REBASE_COMMAND, notification.title
+        )
+        return _result(notification, "rebase_requested", skipped=True)
+
+    if client.create_comment(pr.comments_url, REBASE_COMMAND):
+        logger.info(
+            "Commented '%s' on behind-base PR: %s",
+            REBASE_COMMAND,
+            notification.title,
+        )
+        return _result(notification, "rebase_requested", commented=True)
+
+    logger.error("Failed to comment rebase request: %s", notification.title)
+    return _result(notification, "comment_failed", error=True)
+
+
 def process_notification(
     client: GitHubClient,
     notification: Notification,
@@ -141,14 +278,7 @@ def process_notification(
         )
 
     if not pr.is_done:
-        logger.info("Skip unfinished PR [%s]: %s", pr.status, notification.title)
-        return ProcessResult(
-            thread_id=notification.thread_id,
-            title=notification.title,
-            repository=notification.repository_full_name,
-            status=f"skip_{pr.status}",
-            skipped=True,
-        )
+        return _handle_open_pr(client, notification, pr, settings)
 
     if settings.dry_run:
         logger.info(
@@ -226,5 +356,6 @@ def summarize(results: Sequence[ProcessResult]) -> dict[str, int]:
         "archived": sum(1 for r in results if r.archived),
         "skipped": sum(1 for r in results if r.skipped),
         "errors": sum(1 for r in results if r.error),
+        "commented": sum(1 for r in results if r.commented),
         "total": len(results),
     }

@@ -58,9 +58,10 @@ def main(argv: list[str] | None = None) -> int:
 
     summary = summarize(results)
     logger.info(
-        "Done. archived=%d skipped=%d errors=%d total=%d",
+        "Done. archived=%d skipped=%d commented=%d errors=%d total=%d",
         summary["archived"],
         summary["skipped"],
+        summary["commented"],
         summary["errors"],
         summary["total"],
     )

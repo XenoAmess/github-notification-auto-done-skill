@@ -82,6 +82,32 @@ class TestLoadSettings:
         assert settings.max_workers == 10
         assert settings.dry_run is True
 
+    def test_auto_rebase_flag(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_token")
+        monkeypatch.setattr(sys, "argv", ["prog", "--auto-rebase"])
+        settings = load_settings()
+        assert settings.auto_rebase is True
+
+    def test_auto_rebase_env(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_token")
+        monkeypatch.setenv("AUTO_REBASE", "true")
+        monkeypatch.setattr(sys, "argv", ["prog"])
+        settings = load_settings()
+        assert settings.auto_rebase is True
+
+    def test_rebase_cooldown_minutes_cli(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_token")
+        monkeypatch.setattr(sys, "argv", ["prog", "--rebase-cooldown-minutes", "60"])
+        settings = load_settings()
+        assert settings.rebase_cooldown_minutes == 60
+
+    def test_rebase_cooldown_minutes_env(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", "ghp_token")
+        monkeypatch.setenv("REBASE_COOLDOWN_MINUTES", "45")
+        monkeypatch.setattr(sys, "argv", ["prog"])
+        settings = load_settings()
+        assert settings.rebase_cooldown_minutes == 45
+
 
 # Need timedelta import for test_defaults_to_24h_ago_when_empty
 from datetime import timedelta  # noqa: E402

@@ -6,6 +6,8 @@
 
 A small Python tool that automatically archives GitHub notifications for **merged or closed dependabot Pull Requests**, so your inbox stays clean without manual clicks.
 
+Optionally, it can also comment `@dependabot rebase` on **open** dependabot PRs that are out-of-date with the base branch while all checks have passed, so auto-merge can proceed without manual clicks either.
+
 ---
 
 ## What it does
@@ -44,7 +46,11 @@ flowchart TD
     K -->|No| L[Skip non-dependabot PR]
     K -->|Yes| M[Fetch PR state]
     M -->|Fetch failed| N[Log error]
-    M -->|Still open| O[Skip unfinished PR]
+    M -->|Still open| OA{"Auto-rebase on, behind base, checks green, no pending rebase request?"}
+    OA -->|No| O[Skip unfinished PR]
+    OA -->|Yes| OB{Is dry-run?}
+    OB -->|Yes| OC[Preview rebase comment]
+    OB -->|No| OD["Comment @dependabot rebase"]
     M -->|Merged or closed| P{Is dry-run?}
     P -->|Yes| Q[Preview only]
     P -->|No| R[Archive notification via official API]
@@ -53,6 +59,8 @@ flowchart TD
     L --> S
     N --> S
     O --> S
+    OC --> S
+    OD --> S
     Q --> S
     R --> S
     S --> T[Exit]
@@ -65,6 +73,35 @@ DELETE /notifications/threads/{thread_id}
 ```
 
 This endpoint is documented as **"Mark a thread as done"** and is exactly what GitHub's own web UI does when you archive a notification.
+
+---
+
+## Auto-rebase open dependabot PRs
+
+With `--auto-rebase` enabled, open dependabot PRs are **not** just skipped.
+For each open dependabot PR the tool checks **all** of the following:
+
+1. the branch is **out-of-date with the base branch** (`mergeable_state` is `behind`)
+2. **all checks have passed** on the head commit (check runs succeeded /
+   skipped / neutral, and the combined commit status is green)
+3. dependabot is **not currently rebasing** — detected as: no
+   `@dependabot rebase` comment was posted within the cooldown window
+   (`--rebase-cooldown-minutes`, default 30)
+
+When all three hold, the tool posts a `@dependabot rebase` comment on the PR.
+Dependabot then rebases the branch, checks re-run, and any enabled auto-merge
+can proceed.
+
+```bash
+# Preview which PRs would get a rebase comment
+python -m github_notification_auto_done --auto-rebase --dry-run
+
+# Actually comment
+python -m github_notification_auto_done --auto-rebase
+```
+
+The same notification pass still archives merged/closed PRs, so one cron job
+handles both duties.
 
 ---
 
@@ -111,7 +148,7 @@ GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 ### Token permissions
 
 - **Classic PAT**: needs the `notifications` and `repo` scopes.
-- **Fine-grained PAT**: needs read access to notifications and repository contents/pull requests.
+- **Fine-grained PAT**: needs read access to notifications and repository contents/pull requests. With `--auto-rebase`, it additionally needs **Issues: write** (PR comments use the issues API) on the target repositories.
 
 > Keep your token secret. Never commit `.env`.
 
@@ -159,8 +196,10 @@ python scripts/github_notification_auto_done.py
 | `--json-logs` | `false` | Emit logs as newline-delimited JSON |
 | `-v`, `--verbose` | `false` | Enable DEBUG logging |
 | `--config` | none | Load defaults from a JSON or TOML file |
+| `--auto-rebase` | `false` | Comment `@dependabot rebase` on open dependabot PRs that are behind the base branch with all checks green |
+| `--rebase-cooldown-minutes` | `30` | Minimum minutes between two rebase requests for the same PR |
 
-Environment variables with the same names (e.g. `MAX_WORKERS`, `EXCLUDE_REPOS`) are also supported. CLI flags take precedence over environment variables, which take precedence over config files.
+Environment variables with the same names (e.g. `MAX_WORKERS`, `EXCLUDE_REPOS`, `AUTO_REBASE`, `REBASE_COOLDOWN_MINUTES`) are also supported. CLI flags take precedence over environment variables, which take precedence over config files.
 
 ---
 

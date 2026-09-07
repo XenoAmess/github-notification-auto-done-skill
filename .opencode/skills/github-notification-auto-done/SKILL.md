@@ -4,13 +4,17 @@ description: >
   Use when the user wants to clean up, archive, or mark-as-done GitHub
   notifications for merged or closed dependabot Pull Requests, or mentions
   GitHub notification inbox clutter, dependabot notifications, auto-archiving
-  PR notifications, or running a scheduled notification cleanup task.
+  PR notifications, or running a scheduled notification cleanup task. Also
+  use when the user wants to auto-comment "@dependabot rebase" on open
+  dependabot PRs that are out-of-date with the base branch while all checks
+  have passed.
 ---
 
 # GitHub Notification Auto Done
 
 Archive merged/closed dependabot Pull Request notifications from the GitHub
-inbox using the official GitHub REST API.
+inbox using the official GitHub REST API. Optionally nudge open dependabot
+PRs that fell behind the base branch by commenting `@dependabot rebase`.
 
 ## When to use
 
@@ -22,6 +26,7 @@ Trigger this skill when the user asks for any of the following:
 - "Auto-archive dependabot notifications"
 - "Run the GitHub notification cleanup tool"
 - "Set up a cron job to archive dependabot PRs"
+- "Auto-comment @dependabot rebase on behind dependabot PRs with green checks"
 
 Do **not** use this skill for non-dependabot notifications, GitHub Issues,
 Discussions, or repository-level automation unrelated to notification cleanup.
@@ -38,7 +43,7 @@ Discussions, or repository-level automation unrelated to notification cleanup.
 4. Required token scopes:
    - Classic PAT: `notifications` and `repo`
    - Fine-grained PAT: read access to notifications and repository
-     contents/pull requests
+     contents/pull requests; with `--auto-rebase` also **Issues: write**
 5. **Never** commit `.env` or expose the token in chat output or logs.
 
 ## How to run
@@ -56,6 +61,16 @@ python -m github_notification_auto_done --dry-run
 
 ```bash
 python -m github_notification_auto_done
+```
+
+### Auto-rebase open dependabot PRs
+
+```bash
+# Preview which PRs would get a rebase comment
+python -m github_notification_auto_done --auto-rebase --dry-run
+
+# Actually comment "@dependabot rebase"
+python -m github_notification_auto_done --auto-rebase
 ```
 
 ### Backwards-compatible script entry
@@ -76,9 +91,12 @@ python scripts/github_notification_auto_done.py --dry-run
 | `--json-logs` | `false` | Emit logs as newline-delimited JSON |
 | `-v` / `--verbose` | `false` | DEBUG level logging |
 | `--config` | none | JSON or TOML config file with defaults |
+| `--auto-rebase` | `false` | Comment `@dependabot rebase` on open dependabot PRs behind the base branch with all checks green |
+| `--rebase-cooldown-minutes` | `30` | Minimum minutes between two rebase requests for the same PR |
 
 Environment variables with the same names (`SINCE`, `MAX_WORKERS`,
-`EXCLUDE_REPOS`, `LOG_FILE`, `JSON_LOGS`, `VERBOSE`) are also supported.
+`EXCLUDE_REPOS`, `LOG_FILE`, `JSON_LOGS`, `VERBOSE`, `AUTO_REBASE`,
+`REBASE_COOLDOWN_MINUTES`) are also supported.
 
 ## What the tool does
 
@@ -88,6 +106,13 @@ Environment variables with the same names (`SINCE`, `MAX_WORKERS`,
 4. Fetches each candidate PR to confirm it is `merged` or `closed`.
 5. Archives qualifying notifications via the official GitHub endpoint
    `DELETE /notifications/threads/{thread_id}` ("Mark a thread as done").
+6. With `--auto-rebase`, for each still-open dependabot PR additionally:
+   - requires `mergeable_state == "behind"` (branch out-of-date with base),
+   - requires all check runs on the head commit to be completed with
+     success/neutral/skipped and the combined commit status to be green,
+   - requires no `@dependabot rebase` comment within the cooldown window
+     (i.e. dependabot is not currently rebasing),
+   - then posts `@dependabot rebase` on the PR.
 
 ## Scheduling
 
@@ -109,5 +134,7 @@ To run hourly, add a cron entry:
 
 - Do not run the real archive command without user confirmation or a prior
   `--dry-run`, unless the user explicitly requests immediate execution.
+- `--auto-rebase` posts real `@dependabot rebase` comments; confirm with the
+  user (or run `--dry-run` first) before enabling it for real.
 - Never modify, commit, or leak the contents of `.env`.
 - Do not share the token value in responses.

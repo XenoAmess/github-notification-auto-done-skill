@@ -209,6 +209,93 @@ class GitHubClient:
             return None
         return data
 
+    def get_check_runs(self, repo_full_name: str, sha: str) -> List[dict[str, Any]]:
+        """Fetch all check runs for a commit, following pagination."""
+        url: Optional[str] = (
+            f"{self.base_url}/repos/{repo_full_name}/commits/{sha}/check-runs"
+        )
+        params: Dict[str, Any] = {"per_page": 100}
+        check_runs: List[dict[str, Any]] = []
+        while url:
+            response = self._request("GET", url, params=params)
+            if response.status_code != 200:
+                logger.warning(
+                    "Failed to fetch check runs for %s@%s: %s %s",
+                    repo_full_name,
+                    sha,
+                    response.status_code,
+                    response.text,
+                )
+                return []
+            data = response.json()
+            if not isinstance(data, dict):
+                logger.warning("Unexpected check-runs response: %r", data)
+                return []
+            check_runs.extend(data.get("check_runs") or [])
+            links = self._parse_link_header(response.headers.get("Link", ""))
+            url = links.get("next")
+            params = {}
+        return check_runs
+
+    def get_combined_status(
+        self, repo_full_name: str, sha: str
+    ) -> Optional[dict[str, Any]]:
+        """Fetch the combined commit status (legacy statuses) for a commit."""
+        url = f"{self.base_url}/repos/{repo_full_name}/commits/{sha}/status"
+        response = self._request("GET", url)
+        if response.status_code != 200:
+            logger.warning(
+                "Failed to fetch combined status for %s@%s: %s %s",
+                repo_full_name,
+                sha,
+                response.status_code,
+                response.text,
+            )
+            return None
+        data = response.json()
+        if not isinstance(data, dict):
+            logger.warning("Unexpected combined status response: %r", data)
+            return None
+        return data
+
+    def get_issue_comments(self, comments_url: str) -> List[dict[str, Any]]:
+        """Fetch all issue/PR comments, following pagination."""
+        url: Optional[str] = comments_url
+        params: Dict[str, Any] = {"per_page": 100}
+        comments: List[dict[str, Any]] = []
+        while url:
+            response = self._request("GET", url, params=params)
+            if response.status_code != 200:
+                logger.warning(
+                    "Failed to fetch comments %s: %s %s",
+                    comments_url,
+                    response.status_code,
+                    response.text,
+                )
+                return []
+            data = response.json()
+            if not isinstance(data, list):
+                logger.warning("Unexpected comments response: %r", data)
+                return []
+            comments.extend(data)
+            links = self._parse_link_header(response.headers.get("Link", ""))
+            url = links.get("next")
+            params = {}
+        return comments
+
+    def create_comment(self, comments_url: str, body: str) -> bool:
+        """Post a comment on an issue or pull request."""
+        response = self._request("POST", comments_url, json_body={"body": body})
+        if response.status_code == 201:
+            return True
+        logger.warning(
+            "Failed to post comment to %s: %s %s",
+            comments_url,
+            response.status_code,
+            response.text,
+        )
+        return False
+
     def archive_notification(self, thread_id: str) -> bool:
         """Mark a notification thread as done.
 

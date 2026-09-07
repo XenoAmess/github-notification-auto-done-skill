@@ -143,6 +143,13 @@ class TestRunAndSummarize:
             ProcessResult("1", "a", "owner/a", "merged", archived=True),
             ProcessResult("2", "b", "owner/b", "skip_open", skipped=True),
             ProcessResult("3", "c", "owner/c", "error", error=True),
+            ProcessResult("4", "d", "owner/d", "rebase_requested", commented=True),
         ]
         summary = summarize(results)
-        assert summary == {"archived": 1, "skipped": 1, "errors": 1, "total": 3}
+        assert summary == {
+            "archived": 1,
+            "skipped": 1,
+            "errors": 1,
+            "commented": 1,
+            "total": 4,
+        }

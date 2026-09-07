@@ -14,6 +14,11 @@ class PullRequest:
     author: str
     state: str
     merged: bool
+    number: int = 0
+    mergeable_state: str = ""
+    head_sha: str = ""
+    comments_url: str = ""
+    repo_full_name: str = ""
 
     @property
     def status(self) -> str:
@@ -25,15 +30,28 @@ class PullRequest:
         """Return True if the PR is merged or closed."""
         return self.merged or self.state == "closed"
 
+    @property
+    def is_behind_base(self) -> bool:
+        """Return True if the PR branch is out-of-date with the base branch."""
+        return self.mergeable_state == "behind"
+
     @classmethod
     def from_api(cls, payload: dict[str, Any]) -> PullRequest:
         """Build a PullRequest from a GitHub PR API response."""
         user = payload.get("user") or {}
+        head = payload.get("head") or {}
+        base = payload.get("base") or {}
+        base_repo = base.get("repo") or {}
         return cls(
             url=payload.get("url", ""),
             author=user.get("login", ""),
             state=payload.get("state", ""),
             merged=bool(payload.get("merged")),
+            number=int(payload.get("number") or 0),
+            mergeable_state=payload.get("mergeable_state") or "",
+            head_sha=head.get("sha", ""),
+            comments_url=payload.get("comments_url", ""),
+            repo_full_name=base_repo.get("full_name", ""),
         )
 
 

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "github-notification-auto-done"
-version = "0.2.0"
-description = "Auto-archive dependabot Pull Request notifications on GitHub when they are merged or closed."
+version = "0.3.0"
+description = "Auto-archive dependabot Pull Request notifications on GitHub when they are merged or closed, and nudge behind open dependabot PRs with '@dependabot rebase'."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.8"

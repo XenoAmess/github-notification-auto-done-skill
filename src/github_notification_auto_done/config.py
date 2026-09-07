@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 DEFAULT_SINCE_HOURS = 24
 DEFAULT_MAX_WORKERS = 4
+DEFAULT_REBASE_COOLDOWN_MINUTES = 30
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,8 @@ class Settings:
     log_file: Optional[Path] = None
     json_logs: bool = False
     verbose: bool = False
+    auto_rebase: bool = False
+    rebase_cooldown_minutes: int = DEFAULT_REBASE_COOLDOWN_MINUTES
 
     @property
     def auth_header(self) -> str:
@@ -99,6 +102,15 @@ def _coerce_exclude_repos(value: Optional[str]) -> List[str]:
     return [repo.strip() for repo in value.split(",") if repo.strip()]
 
 
+def _coerce_bool(value: Any) -> bool:
+    """Coerce an env/config value into a boolean."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
@@ -156,6 +168,19 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Optional JSON or TOML configuration file.",
     )
+    parser.add_argument(
+        "--auto-rebase",
+        action="store_true",
+        help="Comment '@dependabot rebase' on open dependabot PRs that are "
+        "out-of-date with the base branch while all checks have passed.",
+    )
+    parser.add_argument(
+        "--rebase-cooldown-minutes",
+        type=int,
+        default=DEFAULT_REBASE_COOLDOWN_MINUTES,
+        help="Minutes to wait before re-requesting a dependabot rebase "
+        f"(default: {DEFAULT_REBASE_COOLDOWN_MINUTES}).",
+    )
     return parser
 
 
@@ -198,6 +223,22 @@ def load_settings(argv: Optional[Sequence[str]] = None) -> Settings:
     json_logs = args.json_logs or config.get("json_logs", False)
     verbose = args.verbose or config.get("verbose", False)
 
+    auto_rebase_env = os.environ.get("AUTO_REBASE")
+    auto_rebase = _coerce_bool(config.get("auto_rebase"))
+    if auto_rebase_env is not None:
+        auto_rebase = _coerce_bool(auto_rebase_env)
+    if args.auto_rebase:
+        auto_rebase = True
+
+    cooldown_env = os.environ.get("REBASE_COOLDOWN_MINUTES")
+    rebase_cooldown_minutes = int(
+        config.get("rebase_cooldown_minutes", DEFAULT_REBASE_COOLDOWN_MINUTES)
+    )
+    if cooldown_env:
+        rebase_cooldown_minutes = int(cooldown_env)
+    if args.rebase_cooldown_minutes != DEFAULT_REBASE_COOLDOWN_MINUTES:
+        rebase_cooldown_minutes = args.rebase_cooldown_minutes
+
     return Settings(
         github_token=token,
         since=since,
@@ -207,4 +248,6 @@ def load_settings(argv: Optional[Sequence[str]] = None) -> Settings:
         log_file=Path(log_file) if log_file else None,
         json_logs=json_logs,
         verbose=verbose,
+        auto_rebase=auto_rebase,
+        rebase_cooldown_minutes=rebase_cooldown_minutes,
     )
