@@ -119,8 +119,11 @@ Environment variables with the same names (`SINCE`, `MAX_WORKERS`,
 To run hourly, add a cron entry:
 
 ```cron
-0 * * * * cd /path/to/repo && /path/to/venv/bin/python -m github_notification_auto_done >> /var/log/github_cleanup.log 2>&1
+0 * * * * cd /path/to/repo && /path/to/venv/bin/python -m github_notification_auto_done --auto-rebase >> /var/log/github_cleanup.log 2>&1
 ```
+
+Drop `--auto-rebase` if only notification archiving (no rebase comments) is
+wanted.
 
 ## Error handling
 
