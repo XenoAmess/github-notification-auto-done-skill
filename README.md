@@ -176,10 +176,10 @@ python -m github_notification_auto_done
 python scripts/github_notification_auto_done.py
 ```
 
-### Cron (hourly)
+### Cron (every 10 minutes)
 
 ```cron
-0 * * * * cd /path/to/repo && /path/to/repo/.venv/bin/python -m github_notification_auto_done --auto-rebase >> /var/log/github_cleanup.log 2>&1
+*/10 * * * * cd /path/to/repo && /path/to/repo/.venv/bin/python -m github_notification_auto_done --auto-rebase >> /var/log/github_cleanup.log 2>&1
 ```
 
 Drop `--auto-rebase` if you only want notification archiving without the rebase comments.
